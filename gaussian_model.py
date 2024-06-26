@@ -307,25 +307,21 @@ class Gaussian2DImage(nn.Module):
         probs = self.get_opacities()[alive_indices, 0]
         reinit_idx, ratio = self._sample_alives(alive_indices=alive_indices, probs=probs, num=dead_indices.shape[0])
 
-        new_means = self.means.clone()
-        new_scales = self.scales.clone()
-        new_thetas = self.thetas.clone()
-        new_opacities = self.opacities.clone()
         (
-            new_means[dead_indices],
-            new_scales[dead_indices],
-            new_thetas[dead_indices],
-            new_opacities[dead_indices],
+            self.means[dead_indices].data,
+            self.scales[dead_indices],
+            self.thetas[dead_indices],
+            self.opacities[dead_indices],
         ) = self._update_params(reinit_idx, ratio)
 
-        new_scales[reinit_idx] = new_scales[dead_indices]
-        new_opacities[reinit_idx] = new_opacities[dead_indices]
+        self.scales[reinit_idx].data = self.scales[dead_indices].data
+        self.opacities[reinit_idx].data = self.opacities[dead_indices].data
 
         tensors_dict = {
-            "means": new_means,
-            "scales": new_scales,
-            "thetas": new_thetas,
-            "opacities": new_opacities,
+            "means": self.means,
+            "scales": self.scales,
+            "thetas": self.thetas,
+            "opacities": self.opacities,
         }
 
         replace_tensors_to_optimizer(self.optimizer, tensors_dict, indices=reinit_idx)
@@ -348,14 +344,8 @@ class Gaussian2DImage(nn.Module):
             new_opacities,
         ) = self._update_params(add_idx, ratio)
 
-        replace_scales = self.scales.clone()
-        replace_scales[add_idx] = new_scales
-
-        replace_opacities = self.opacities.clone()
-        replace_opacities[add_idx] = new_opacities
-
-        replace_tensor_to_optimizer(self.optimizer, replace_scales, "scales")
-        replace_tensor_to_optimizer(self.optimizer, replace_opacities, "opacities")
+        self.scales[add_idx].data = new_scales
+        self.opacities[add_idx].data = new_opacities
 
         self.densification_postfix(new_means, new_scales, new_thetas, new_opacities)
 
@@ -374,7 +364,4 @@ class Gaussian2DImage(nn.Module):
         noise = torch.randn_like(self.means) * (op_sigmoid(1 - self.get_opacities())) * noise_lr * means_lr
         noise = torch.bmm(actual_covariance, noise.unsqueeze(-1)).squeeze(-1)
 
-        means = self.means.clone()
-        means.add_(noise)
-
-        replace_tensor_to_optimizer(self.optimizer, means, "means")
+        self.means.data.add_(noise)
