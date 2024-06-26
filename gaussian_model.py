@@ -263,24 +263,9 @@ class Gaussian2DImage(nn.Module):
         self.replace_params(optimizable_tensors)
 
     def _compute_relocation(self, opacities_old, scales_old, N):
-        # opacities_new = 1.0 - torch.pow(1 - opacities_old, 1 / N)
-
-        # N_expanded = N.repeat(1, scales_old.shape[1])
-        # scales_new = scales_old
-
-        # print(N.shape, N)
-
-        # scales_new = torch.pow(opacities_old, 2) * torch.sqrt(
-        #     (-1) ** (torch.arange(scales_old.shape[0])) * opacities_new
-        # )
-        # scales_new = scales_new.unsqueeze(-1).repeat(1, scales_old.shape[1])
-        # scales_new = scales_new * scales_old
-        # scales_new = scales_new / torch.sqrt(N_expanded)
-
         opacities_new = opacities_old / N
         N_expanded = N.repeat(1, scales_old.shape[1])
         scales_new = scales_old / torch.sqrt(N_expanded)
-
         return opacities_new, scales_new
 
     def _update_params(self, idxs, ratio):
