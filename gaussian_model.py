@@ -309,9 +309,9 @@ class Gaussian2DImage(nn.Module):
 
         (
             self.means[dead_indices].data,
-            self.scales[dead_indices],
-            self.thetas[dead_indices],
-            self.opacities[dead_indices],
+            self.scales[dead_indices].data,
+            self.thetas[dead_indices].data,
+            self.opacities[dead_indices].data,
         ) = self._update_params(reinit_idx, ratio)
 
         self.scales[reinit_idx].data = self.scales[dead_indices].data
@@ -324,7 +324,8 @@ class Gaussian2DImage(nn.Module):
             "opacities": self.opacities,
         }
 
-        replace_tensors_to_optimizer(self.optimizer, tensors_dict, indices=reinit_idx)
+        optimizable_tensors = replace_tensors_to_optimizer(self.optimizer, tensors_dict, indices=reinit_idx)
+        self.replace_params(optimizable_tensors)
 
     def add_new_gs(self, cap_max):
         current_num_points = self.opacities.shape[0]
@@ -356,12 +357,12 @@ class Gaussian2DImage(nn.Module):
             "opacities": self.opacities,
         }
 
-        replace_tensors_to_optimizer(self.optimizer, tensors_dict, indices=add_idx)
+        optimizable_tensors = replace_tensors_to_optimizer(self.optimizer, tensors_dict, indices=add_idx)
+        self.replace_params(optimizable_tensors)
         return num_gs
 
     def add_means_noise(self, noise_lr, means_lr):
         actual_covariance = covariance_matrix(self.get_scales(), rotation_matrix(self.get_thetas()))
         noise = torch.randn_like(self.means) * (op_sigmoid(1 - self.get_opacities())) * noise_lr * means_lr
         noise = torch.bmm(actual_covariance, noise.unsqueeze(-1)).squeeze(-1)
-
         self.means.data.add_(noise)
