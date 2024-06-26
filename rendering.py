@@ -46,10 +46,9 @@ def render_alpha_blend(width, height, means, covariances, opacities):
     ndc_grid = ndc_pixel_coordinates(width, height).to(means.device)  # [H, W, 2]
 
     n_gaussians = means.shape[0]
-    xy_means = means[:, :2]
-
     ndc_grid = ndc_grid.repeat(n_gaussians, 1, 1, 1)
-    d = ndc_grid - xy_means[:, None, None, :]
+
+    d = ndc_grid - means[:, None, None, :]
 
     v = d[..., None, :] @ torch.linalg.inv(covariances)[:, None, None, :, :] @ d[..., None]
     v = v.squeeze()

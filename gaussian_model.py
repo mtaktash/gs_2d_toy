@@ -77,8 +77,8 @@ class Gaussian2DImage(nn.Module):
         self.means = nn.Parameter(means, requires_grad=True)
 
         # scale of gaussian
-        scales = torch.randn((num_gaussians, 2)).clamp(0)
-        scales = torch.log(scales + 1e-5)
+        scales = torch.randn((num_gaussians, 2))
+        scales = scales - math.exp(1)
         self.scales = nn.Parameter(scales, requires_grad=True)
 
         # rotation angle of gaussian
