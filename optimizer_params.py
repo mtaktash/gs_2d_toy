@@ -16,6 +16,31 @@ def replace_tensor_to_optimizer(optimizer, tensor, name):
             optimizer.state[group["params"][0]] = stored_state
 
             optimizable_tensors[group["name"]] = group["params"][0]
+
+    return optimizable_tensors
+
+
+def replace_tensors_to_optimizer(optimizer, tensors_dict, indices=None):
+    optimizable_tensors = {}
+    for group in optimizer.param_groups:
+
+        assert len(group["params"]) == 1
+        tensor = tensors_dict[group["name"]]
+        stored_state = optimizer.state.get(group["params"][0], None)
+
+        if indices is not None:
+            stored_state["exp_avg"][indices] = 0
+            stored_state["exp_avg_sq"][indices] = 0
+        else:
+            stored_state["exp_avg"] = torch.zeros_like(tensor)
+            stored_state["exp_avg_sq"] = torch.zeros_like(tensor)
+
+        del optimizer.state[group["params"][0]]
+        group["params"][0] = nn.Parameter(tensor.requires_grad_(True))
+        optimizer.state[group["params"][0]] = stored_state
+
+        optimizable_tensors[group["name"]] = group["params"][0]
+
     return optimizable_tensors
 
 

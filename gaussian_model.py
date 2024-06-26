@@ -6,6 +6,7 @@ from optimizer_params import (
     get_expon_lr_func,
     prune_optimizer,
     replace_tensor_to_optimizer,
+    replace_tensors_to_optimizer,
 )
 from rendering import render_alpha_blend
 from torch import nn
@@ -14,6 +15,10 @@ from torchmetrics.image import StructuralSimilarityIndexMeasure
 
 def inverse_sigmoid(x, epsilon=1e-5):
     return torch.log((x + epsilon) / (1 - x + epsilon))
+
+
+def op_sigmoid(x, k=100, x0=0.995):
+    return 1 / (1 + torch.exp(-k * (x - x0)))
 
 
 def rotation_matrix(theta):
@@ -72,7 +77,8 @@ class Gaussian2DImage(nn.Module):
         self.height = height
         self.bg_color = bg_color
 
-        means = torch.randn(num_gaussians, 2)
+        means = torch.rand(num_gaussians, 2)
+        means = 2 * means - 1
         self.means = nn.Parameter(means, requires_grad=True)
 
         # scale of gaussian
@@ -107,7 +113,7 @@ class Gaussian2DImage(nn.Module):
                 return lr
 
     def get_means(self):
-        return torch.tanh(self.means)
+        return self.means
 
     def get_scales(self):
         # an exponential activation function for the scale of the covariance for smooth gradients
@@ -248,3 +254,119 @@ class Gaussian2DImage(nn.Module):
             param_names=["means", "scales", "thetas", "opacities"],
         )
         self.replace_params(optimizable_tensors)
+
+    def _compute_relocation(self, opacities_old, scales_old, N):
+        opacities_new = opacities_old / N
+        N_expanded = N.unsqueeze(-1).repeat(1, scales_old.shape[1])
+        scales_new = scales_old / torch.sqrt(N_expanded)
+        return opacities_new, scales_new
+
+    def _update_params(self, idxs, ratio):
+        new_opacities, new_scales = self._compute_relocation(
+            opacities_old=self.get_opacities()[idxs, 0], scales_old=self.get_scales()[idxs], N=ratio[idxs, 0] + 1
+        )
+        new_opacities = torch.clamp(new_opacities.unsqueeze(-1), max=1.0 - torch.finfo(torch.float32).eps, min=0.005)
+        new_opacities = inverse_sigmoid(new_opacities)
+        new_scales = torch.log(new_scales)
+
+        return (
+            self.means[idxs],
+            new_scales,
+            self.thetas[idxs],
+            new_opacities,
+        )
+
+    def _sample_alives(self, probs, num, alive_indices=None):
+        probs = probs / (probs.sum() + torch.finfo(torch.float32).eps)
+        sampled_idxs = torch.multinomial(probs, num, replacement=True)
+        if alive_indices is not None:
+            sampled_idxs = alive_indices[sampled_idxs]
+        ratio = torch.bincount(sampled_idxs).unsqueeze(-1)
+        return sampled_idxs, ratio
+
+    def relocate_gs(self, dead_mask):
+        if dead_mask.sum() == 0:
+            return
+
+        alive_mask = ~dead_mask
+        dead_indices = dead_mask.nonzero(as_tuple=True)[0]
+        alive_indices = alive_mask.nonzero(as_tuple=True)[0]
+
+        if alive_indices.shape[0] <= 0:
+            return
+
+        # sample from alive ones based on opacity
+        probs = self.get_opacities()[alive_indices, 0]
+        reinit_idx, ratio = self._sample_alives(alive_indices=alive_indices, probs=probs, num=dead_indices.shape[0])
+
+        new_means = self.means.clone()
+        new_scales = self.scales.clone()
+        new_thetas = self.thetas.clone()
+        new_opacities = self.opacities.clone()
+        (
+            new_means[dead_indices],
+            new_scales[dead_indices],
+            new_thetas[dead_indices],
+            new_opacities[dead_indices],
+        ) = self._update_params(reinit_idx, ratio)
+
+        new_scales[reinit_idx] = new_scales[dead_indices]
+        new_opacities[reinit_idx] = new_opacities[dead_indices]
+
+        tensors_dict = {
+            "means": new_means,
+            "scales": new_scales,
+            "thetas": new_thetas,
+            "opacities": new_opacities,
+        }
+
+        replace_tensors_to_optimizer(self.optimizer, tensors_dict, indices=reinit_idx)
+
+    def add_new_gs(self, cap_max):
+        current_num_points = self.opacities.shape[0]
+        target_num = min(cap_max, int(1.05 * current_num_points))
+        num_gs = max(0, target_num - current_num_points)
+
+        if num_gs <= 0:
+            return 0
+
+        probs = self.get_opacities().squeeze(-1)
+        add_idx, ratio = self._sample_alives(probs=probs, num=num_gs)
+
+        (
+            new_means,
+            new_scales,
+            new_thetas,
+            new_opacities,
+        ) = self._update_params(add_idx, ratio)
+
+        replace_scales = self.scales.clone()
+        replace_scales[add_idx] = new_scales
+
+        replace_opacities = self.opacities.clone()
+        replace_opacities[add_idx] = new_opacities
+
+        replace_tensor_to_optimizer(self.optimizer, replace_scales, "scales")
+        replace_tensor_to_optimizer(self.optimizer, replace_opacities, "opacities")
+
+        self.densification_postfix(new_means, new_scales, new_thetas, new_opacities)
+
+        tensors_dict = {
+            "means": new_means,
+            "scales": new_scales,
+            "thetas": new_thetas,
+            "opacities": new_opacities,
+        }
+
+        replace_tensors_to_optimizer(self.optimizer, tensors_dict, indices=add_idx)
+        return num_gs
+
+    def add_means_noise(self, noise_lr, means_lr):
+        actual_covariance = covariance_matrix(self.get_scales(), rotation_matrix(self.get_thetas()))
+        noise = torch.randn_like(self.means) * (op_sigmoid(1 - self.get_opacities())) * noise_lr * means_lr
+        noise = torch.bmm(actual_covariance, noise.unsqueeze(-1)).squeeze(-1)
+
+        means = self.means.clone()
+        means.add_(noise)
+
+        replace_tensor_to_optimizer(self.optimizer, means, "means")
