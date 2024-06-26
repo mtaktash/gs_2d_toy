@@ -103,14 +103,14 @@ class Gaussian2DImage(nn.Module):
 
     def create_optimizer(self):
         params = [
-            {"params": [self.means], "lr": 0.01, "name": "means"},
+            {"params": [self.means], "lr": 0.001, "name": "means"},
             {"params": [self.scales], "lr": 0.005, "name": "scales"},
             {"params": [self.thetas], "lr": 0.001, "name": "thetas"},
             {"params": [self.opacities], "lr": 0.05, "name": "opacities"},
         ]
 
         self.optimizer = torch.optim.Adam(params, lr=0.0, eps=1e-15)
-        self.mean_scheduler = get_expon_lr_func(0.01, 0.001, max_steps=30000)
+        self.mean_scheduler = get_expon_lr_func(0.001, 0.0001, max_steps=30000)
 
     def update_learning_rate(self, step):
         for param_group in self.optimizer.param_groups:
