@@ -69,6 +69,13 @@ def combined_loss(pred, target, lambda_param):
     return (1 - lambda_param) * l1_loss(pred, target) + lambda_param * d_ssim
 
 
+N_max = 51
+binoms = torch.zeros((N_max, N_max)).float().cuda()
+for n in range(N_max):
+    for k in range(n + 1):
+        binoms[n, k] = math.comb(n, k)
+
+
 class Gaussian2DImage(nn.Module):
     def __init__(self, num_gaussians, width, height, bg_color=[0.0, 0.0, 0.0]):
         super().__init__()
@@ -256,17 +263,33 @@ class Gaussian2DImage(nn.Module):
         self.replace_params(optimizable_tensors)
 
     def _compute_relocation(self, opacities_old, scales_old, N):
+        # opacities_new = 1.0 - torch.pow(1 - opacities_old, 1 / N)
+
+        # N_expanded = N.repeat(1, scales_old.shape[1])
+        # scales_new = scales_old
+
+        # print(N.shape, N)
+
+        # scales_new = torch.pow(opacities_old, 2) * torch.sqrt(
+        #     (-1) ** (torch.arange(scales_old.shape[0])) * opacities_new
+        # )
+        # scales_new = scales_new.unsqueeze(-1).repeat(1, scales_old.shape[1])
+        # scales_new = scales_new * scales_old
+        # scales_new = scales_new / torch.sqrt(N_expanded)
+
         opacities_new = opacities_old / N
-        N_expanded = N.unsqueeze(-1).repeat(1, scales_old.shape[1])
+        N_expanded = N.repeat(1, scales_old.shape[1])
         scales_new = scales_old / torch.sqrt(N_expanded)
+
         return opacities_new, scales_new
 
     def _update_params(self, idxs, ratio):
         new_opacities, new_scales = self._compute_relocation(
-            opacities_old=self.get_opacities()[idxs, 0], scales_old=self.get_scales()[idxs], N=ratio[idxs, 0] + 1
+            opacities_old=self.get_opacities()[idxs], scales_old=self.get_scales()[idxs], N=ratio[idxs] + 1
         )
-        new_opacities = torch.clamp(new_opacities.unsqueeze(-1), max=1.0 - torch.finfo(torch.float32).eps, min=0.005)
+        new_opacities = torch.clamp(new_opacities, max=1.0 - torch.finfo(torch.float32).eps, min=0.005)
         new_opacities = inverse_sigmoid(new_opacities)
+
         new_scales = torch.log(new_scales)
 
         return (
