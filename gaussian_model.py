@@ -72,8 +72,7 @@ class Gaussian2DImage(nn.Module):
         self.height = height
         self.bg_color = bg_color
 
-        means = torch.rand(num_gaussians, 2)
-        means = 2 * means - 1
+        means = torch.randn(num_gaussians, 2)
         self.means = nn.Parameter(means, requires_grad=True)
 
         # scale of gaussian
@@ -108,7 +107,7 @@ class Gaussian2DImage(nn.Module):
                 return lr
 
     def get_means(self):
-        return self.means
+        return torch.tanh(self.means)
 
     def get_scales(self):
         # an exponential activation function for the scale of the covariance for smooth gradients
