@@ -360,10 +360,10 @@ class Gaussian2DImage(nn.Module):
         self.densification_postfix(new_means, new_scales, new_thetas, new_opacities)
 
         tensors_dict = {
-            "means": new_means,
-            "scales": new_scales,
-            "thetas": new_thetas,
-            "opacities": new_opacities,
+            "means": self.means,
+            "scales": self.scales,
+            "thetas": self.thetas,
+            "opacities": self.opacities,
         }
 
         replace_tensors_to_optimizer(self.optimizer, tensors_dict, indices=add_idx)
