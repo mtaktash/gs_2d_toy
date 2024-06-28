@@ -2,3 +2,5 @@
 __pycache__
 
 temp/
+output/
+*.mp4
