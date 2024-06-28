@@ -264,8 +264,8 @@ class Gaussian2DImage(nn.Module):
 
     def _compute_relocation(self, opacities_old, scales_old, N):
         opacities_new = opacities_old / N
-        N_expanded = N.repeat(1, scales_old.shape[1])
-        scales_new = scales_old / torch.sqrt(N_expanded)
+        #N_expanded = N.repeat(1, scales_old.shape[1])
+        scales_new = scales_old 
         return opacities_new, scales_new
 
     def _update_params(self, idxs, ratio):
